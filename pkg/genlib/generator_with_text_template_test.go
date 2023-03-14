@@ -30,6 +30,7 @@ func Test_EmptyCaseWithTextTemplate(t *testing.T) {
 }
 
 func Test_CardinalityWithTextTemplate(t *testing.T) {
+	test_CardinalityEnumTWithTextTemplate(t)
 
 	test_CardinalityTWithTextTemplate[string](t, FieldTypeKeyword)
 	test_CardinalityTWithTextTemplate[int](t, FieldTypeInteger)
@@ -55,7 +56,6 @@ func test_CardinalityTWithTextTemplate[T any](t *testing.T, ty string) {
 	}
 
 	t.Logf("for type %s, with template: %s", ty, string(template))
-	// It's cardinality per mille, so a bit confusing :shrug:
 	for cardinality := 1000; cardinality >= 10; cardinality /= 10 {
 
 		cardinalityDenominator := 1000
@@ -127,6 +127,97 @@ func test_CardinalityTWithTextTemplate[T any](t *testing.T, ty string) {
 
 		if len(vmapBeta) != 2000/cardinality {
 			t.Errorf("Expected cardinality of %d got %d", 2000/cardinality, len(vmapBeta))
+		}
+	}
+}
+
+func test_CardinalityEnumTWithTextTemplate(t *testing.T) {
+	template := []byte(`{"alpha":"{{generate "alpha"}}", "beta":"{{generate "beta"}}"}`)
+
+	fldAlpha := Field{
+		Name: "alpha",
+		Type: FieldTypeKeyword,
+	}
+	fldBeta := Field{
+		Name: "beta",
+		Type: FieldTypeKeyword,
+	}
+
+	t.Logf("for enum with template: %s", string(template))
+	for cardinality := 1000; cardinality >= 10; cardinality /= 10 {
+
+		cardinalityDenominator := 1000
+		cardinalityNumerator := cardinality
+		cardinalityModule := cardinalityDenominator % cardinality
+		if cardinalityModule == 0 {
+			cardinalityNumerator = 1
+			cardinalityDenominator /= cardinality
+		}
+
+		// Add the range to get some variety in integers
+		tmpl := "- name: alpha\n  cardinality:\n    numerator: %d\n    denominator: %d\n  enum: [\"alpha1\", \"alpha2\", \"alpha3\", \"alpha4\"]\n"
+		tmpl += "- name: beta\n  cardinality:\n    numerator: %d\n    denominator: %d\n  enum: [\"beta1\", \"beta2\"]\n"
+
+		yaml := []byte(fmt.Sprintf(tmpl, cardinalityNumerator, cardinalityDenominator, cardinalityNumerator, cardinalityDenominator*2))
+
+		cfg, err := config.LoadConfigFromYaml(yaml)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		nSpins := 16384
+		g, state := makeGeneratorWithTextTemplate(t, cfg, []Field{fldAlpha, fldBeta}, template, uint64(len(template)*nSpins*1024))
+
+		vmapAlpha := make(map[any]int)
+		vmapBeta := make(map[any]int)
+
+		for i := 0; i < nSpins; i++ {
+
+			var buf bytes.Buffer
+			if err := g.Emit(state, &buf); err != nil {
+				t.Fatal(err)
+			}
+
+			m := unmarshalJSONT[string](t, buf.Bytes())
+
+			if len(m) != 2 {
+				t.Errorf("Expected map size 1, got %d", len(m))
+			}
+
+			v, ok := m[fldAlpha.Name]
+
+			if !ok {
+				t.Errorf("Missing key %v", fldAlpha.Name)
+			}
+
+			vmapAlpha[v] = vmapAlpha[v] + 1
+
+			v, ok = m[fldBeta.Name]
+
+			if !ok {
+				t.Errorf("Missing key %v", fldBeta.Name)
+			}
+
+			vmapBeta[v] = vmapBeta[v] + 1
+		}
+
+		alphaConfig, _ := cfg.GetField("alpha")
+		expectedCardinalityAlpha := len(alphaConfig.Enum)
+		if 1000/cardinality < expectedCardinalityAlpha {
+			expectedCardinalityAlpha = 1000 / cardinality
+		}
+		if len(vmapAlpha) != expectedCardinalityAlpha {
+			t.Errorf("Expected cardinality of %d got %d", expectedCardinalityAlpha, len(vmapAlpha))
+		}
+
+		betaConfig, _ := cfg.GetField("beta")
+		expectedCardinalityBeta := len(betaConfig.Enum)
+		if 2000/cardinality < expectedCardinalityBeta {
+			expectedCardinalityBeta = 2000 / cardinality
+		}
+
+		if len(vmapBeta) != expectedCardinalityBeta {
+			t.Errorf("Expected cardinality of %d got %d", expectedCardinalityBeta, len(vmapBeta))
 		}
 	}
 }
