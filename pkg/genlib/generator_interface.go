@@ -649,8 +649,9 @@ func bindCardinality(cfg Config, field Field, fieldMap map[string]any) error {
 		if len(state.prevCacheCardinality[field.Name]) < cardinality {
 
 			// Do college try dupe detection on value;
-			// Allow dupe if no unique value in nTries.
-			nTries := 11 // "These go to 11."
+			// Let's try as much as we can to generate the required number different values
+			// If we cannot, ok, let's give up
+			nTries := cardinality
 			var tmp bytes.Buffer
 			var value []byte
 			for i := 0; i < nTries; i++ {
@@ -954,8 +955,9 @@ func bindCardinalityWithReturn(cfg Config, field Field, fieldMap map[string]any)
 		// Have we rolled over once?  If not, generate a value and cache it.
 		if len(state.prevCacheCardinality[field.Name]) < cardinality {
 			// Do college try dupe detection on value;
-			// Allow dupe if no unique value in nTries.
-			nTries := 11 // "These go to 11."
+			// Let's try as much as we can to generate the required number different values
+			// If we cannot, ok, let's give up
+			nTries := cardinality
 			for i := 0; i < nTries; i++ {
 				value = boundFWithReturn(state)
 
